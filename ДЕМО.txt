@@ -1,0 +1,784 @@
+/*Реализовать простейший файловый менеджер с использованием ООП (классы,
+наследование и так далее).
+Файловый менеджер должен иметь такие возможности:
+■ показывать содержимое дисков; +
+■ создавать папки/файлы; +
+■ удалять папки/файлы; +
+■ переименовывать папки/файлы;
+■ копировать + /переносить папки/файлы;
+■ вычислять размер папки/файла;
+■ производить поиск по маске (с поиском по подпапкам) и так далее (только папка)*/
+
+
+#include <Windows.h> //Для работы с файловой системой функции и структуры
+#include <iostream>
+#include <string>
+#include <fstream>
+#include <codecvt>
+
+using namespace std;
+
+
+class DiskManager
+{
+private:
+    //Инкапсуляция достигается путем объявления переменных-членов класса как приватных, что позволяет скрыть реализацию от других частей программы
+    char* m_szDrives;
+    DWORD m_dwBufferSize{};
+    string data{};
+    string filename{};
+    string folder{};
+    string driveLetter;
+    string path;
+
+public:
+    //Конструктор который задает значения по умолчанию для аргументов data, filename и driveLetter
+    DiskManager(string data = "", string filename = "", string driveLetter = "") :
+        m_szDrives(nullptr), m_dwBufferSize(0), data(data), filename(filename), driveLetter(driveLetter)
+    {
+        m_dwBufferSize = GetLogicalDriveStringsA(0, nullptr); //функция GetLogicalDriveStringsA для получения списка доступных дисков и сохранения этого списка в переменной m_szDrives.
+        if (m_dwBufferSize > 0) {
+            m_szDrives = new char[m_dwBufferSize];//m_dwBufferSize длина мас //m_szDrives - указатель на мас char
+            GetLogicalDriveStringsA(m_dwBufferSize, m_szDrives);
+        }
+    }
+
+    // Деструктор класса для массива m_szDrives в конструкторе
+    ~DiskManager()
+    {
+        delete[] m_szDrives;
+    }
+
+    // Методы для управления данными
+    void setDriveLetter(string driveLetter) { this->driveLetter = driveLetter; }
+    string getDriveLetter() { return driveLetter; }
+
+    void setPath(string path) { this->path = path; } // для ссылки на текущий объект класса
+    string getPath() { return path; } // возвращает текущее значение поля
+
+
+    void setData(string data) { this->data = data; }
+    string getData() { return data; }
+
+    void setFilename(string filename) { this->filename = filename; }
+    string getFilename() { return filename; }
+
+    void setFolder(string folder) { this->folder = folder; } //!!!!!!!
+    string getFolder() { return folder; } ///!!!!!!!!!!!
+
+    //Метод для вывода списка подключенных дисков
+    void ListDrives() //вывод списка дисков - указатель проходит по списку
+    {
+        // Устанавливаем указатель на первый элемент списка
+        char* szSingleDrive = m_szDrives;
+        // Проходим по списку и выводим каждый диск
+        while (*szSingleDrive)
+        {
+            cout << "Drive: " << szSingleDrive << endl;
+            // Увеличиваем указатель на размер текущей строки и символ конца строки
+            szSingleDrive += strlen(szSingleDrive) + 1;//+1
+        }
+    }
+
+    // Метод для выбора диска по букве
+    bool selectDrive(string driveLetter)
+    {
+        // Устанавливаем указатель на первый элемент списка
+        char* szSingleDrive = m_szDrives;//+1
+
+        // Проходим по списку и ищем нужный диск
+        while (*szSingleDrive)
+        {
+            // Если найден нужный диск
+            if (toupper(*szSingleDrive) == driveLetter[0])
+            {
+                return true;
+            }
+            // Увеличиваем указатель на размер текущей строки и символ конца строки
+            szSingleDrive += strlen(szSingleDrive) + 1;
+        }
+        return false;
+    }
+
+    // Метод для вывода всех файлоv на диске
+    void ListDirectory(string driveLetter)
+    {
+        // Получаем путь к текущей директории выбранного диска
+        string path = driveLetter + string(":\\*.*");
+
+        WIN32_FIND_DATAA fd;
+        HANDLE hFind = FindFirstFileA(path.c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                // Пропускаем скрытые файлы и папки
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN))
+                {
+                    cout << (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ? "[DIR] " : "[FILE] ") << fd.cFileName << endl;
+                }
+            } while (FindNextFileA(hFind, &fd));
+            FindClose(hFind);
+        }
+    }
+
+    // Метод для вывода инфы о диске
+    void getDiskSpaceInfo(string driveLetter) {
+        ULARGE_INTEGER freeBytesAvailable, totalNumberOfBytes, totalNumberOfFreeBytes;
+
+        // Преобразуем букву диска в строку с именем диска
+        string driveName = driveLetter + ":\\";
+        LPCSTR lpDriveName = driveName.c_str();
+
+        // Получаем информацию о свободном месте на диске
+        if (GetDiskFreeSpaceExA(lpDriveName, &freeBytesAvailable, &totalNumberOfBytes, &totalNumberOfFreeBytes)) {
+            // Выводим информацию о свободном месте на диске
+            cout << "Free space: " << freeBytesAvailable.QuadPart / (1024 * 1024) << " MB" << endl;
+            cout << "Total space: " << totalNumberOfBytes.QuadPart / (1024 * 1024) << " MB" << endl;
+        }
+        else {
+            // Если произошла ошибка, выводим сообщение об ошибке
+            cout << "Failed to get disk space information" << endl;
+        }
+    }
+
+    // Метод для создания папки
+    string CreateNewFolder(string filename)
+    {
+        string path = driveLetter + string(":\\") + filename;
+        if (!CreateDirectoryA(path.c_str(), NULL) && ERROR_ALREADY_EXISTS != GetLastError())
+        {
+            cout << "Failed to create directory: " << path << endl;
+            return "";
+        }
+        return path;
+    }
+
+    // Метод для создания файла
+    void CreateNewFile(string filename)
+    {
+        string path = driveLetter + string(":\\") + filename + ".txt";
+
+        // Создаем файл
+        ofstream outfile(path.c_str()); // объект типа ofstream для создания нового файла с указанным именем
+
+        if (outfile.good())
+        { //метод good() объекта ofstream - успешно создан, возвращает значение true/false
+            outfile.close();
+            cout << "File created successfully" << endl;
+        }
+        else
+        {
+            outfile.close();
+            cout << "Failed to create file" << endl;
+        }
+    }
+
+    //Метод принимает имя папки, которую нужно удалить, и использует метод DeleteItem для удаления папки по указанному пути
+    bool DeleteFolderDisk(string filename)
+    {
+        // Получаем путь к выбранной директории
+        string path = driveLetter + string(":\\") + filename;
+        // Вызываем метод DeleteItem для удаления директории
+        return DeleteItem(path);
+    }
+
+    //Метод принимает имя файла, который нужно удалить, и использует метод DeleteItem для удаления папки по указанному пути
+    bool DeleteFileDisk(string filename)
+    {
+        // Получаем путь к выбранной директории
+        string path = driveLetter + string(":\\") + filename + ".txt";
+        // Вызываем метод DeleteItem для удаления директории
+        return DeleteItem(path);
+    }
+
+    //Метод принимает путь к файлу или папке, которую нужно удалить
+    bool DeleteItem(string path)
+    {
+        // Попытаемся удалить объект по указанному пути
+        if (RemoveDirectoryA(path.c_str()) || DeleteFileA(path.c_str())) {
+            cout << "Successfully deleted the file or directory" << endl; //Успешно удален файл или каталог
+            return true;
+        }
+        else {
+            cout << "Failed to delete the file or directory" << endl;
+            return false;
+        }
+    }
+
+    //Метод вычисляет размер указанного файла
+    void GetFileSize(string filename)
+    {
+        // Получаем путь к файлу
+        string path = driveLetter + ":\\\\" + filename + "\\" + filename;
+
+        // Получаем информацию о файле
+        WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+        if (GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fileInfo))
+        {
+            ULARGE_INTEGER fileSize;
+            fileSize.HighPart = fileInfo.nFileSizeHigh;
+            fileSize.LowPart = fileInfo.nFileSizeLow;
+            cout << "File size: " << fileSize.QuadPart << " bytes" << endl;
+        }
+        else
+        {
+            cout << "Failed to get file size for: " << path << endl;
+        }
+    }
+
+    // Метод для переименования папки
+    bool renameFolder(string oldFolderName, string newFolderName)
+    {
+        string oldPath = driveLetter + string(":\\") + oldFolderName;
+        string newPath = driveLetter + string(":\\") + newFolderName;
+
+        if (MoveFileA(oldPath.c_str(), newPath.c_str()) != 0) {
+            cout << "Folder \\"<< oldFolderName << " has been renamed to \\" << newFolderName << endl;
+            return true;
+        }
+        else {
+            cout << "Failed to rename folder " << oldFolderName << endl;
+            return false;
+        }
+    }
+
+    // Метод для переименования файла
+    bool renameFile(string oldFilename, string newFilename)
+    {
+        string oldPath = driveLetter + string(":\\") + oldFilename + ".txt";
+        string newPath = driveLetter + string(":\\") + newFilename + ".txt";
+        if (MoveFileA(oldPath.c_str(), newPath.c_str()) != 0) {
+            cout << "File " << oldFilename << " has been renamed to " << newFilename << endl;
+            return true;
+        }
+        else {
+            cout << "Failed to rename file " << oldFilename << endl;
+            return false;
+        }
+    }
+
+    // Метод для Копирование файла
+    bool CopyFileDisk(string filename)
+    {
+        string sourcePath = driveLetter + string(":\\") + filename + ".txt";
+        string destPath = driveLetter + string(":\\") + filename + "1.txt";
+
+        if (CopyFileA(sourcePath.c_str(), destPath.c_str(), false)) {
+            cout << "Successfully copied the file" << endl;
+            return true;
+        }
+        else {
+            cout << "Failed to copy the file" << endl;
+            return false;
+        }
+    }
+
+    bool FindFolder(string filename)
+    {
+        // Получаем путь к текущей директории выбранного диска
+        string path = driveLetter + string(":\\*.*");
+
+        WIN32_FIND_DATAA fd;
+        HANDLE hFind = FindFirstFileA(path.c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                // Проверяем, является ли текущий элемент папкой
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                {
+                    // Проверяем, соответствует ли имя текущей папки искомому имени папки
+                    if (strcmp(fd.cFileName, filename.c_str()) == 0)
+                    {
+                        FindClose(hFind);
+                        cout << "!!!!!!!!!!!! Find !!!!!!!!!!!!!!!!!!\n";
+                        return true;
+                    }
+                }
+            } while (FindNextFileA(hFind, &fd));
+            FindClose(hFind);
+        }
+        return false;
+    }
+
+    //Аргументы, которые нужно передать методу bool CopyFolder(string driveLetter, string destinationFolder) строки путь иссходной папки, исходя из него можно поменять и диск сохранения копии
+    string CopyFolder_arg(string driveLetter, string filename)
+    {
+        string sourceFolder = driveLetter + string(":\\") + filename;
+
+        return sourceFolder;
+
+    }
+
+    //Метод копирования папки
+    bool CopyFolder(string driveLetter, string destinationFolder)
+    {
+        string sourceFolderWithMask = driveLetter + "\\*.*"; /// используем driveLetter, переданный из CopyFolder_arg
+        WIN32_FIND_DATAA fileData;
+        HANDLE hFind;
+
+        if ((hFind = FindFirstFileA(sourceFolderWithMask.c_str(), &fileData)) == INVALID_HANDLE_VALUE)
+        {
+            cout << "Failed to find first file in folder: " << driveLetter << endl;
+            return false;
+        }
+
+        do
+        {
+            if (strcmp(fileData.cFileName, ".") == 0 || strcmp(fileData.cFileName, "..") == 0)
+            {
+                continue;
+            }
+
+            string sourceFilePath = driveLetter + "\\" + fileData.cFileName;
+            string destinationFilePath = destinationFolder + "\\" + fileData.cFileName;
+
+            if (fileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                if (!CreateDirectoryA(destinationFilePath.c_str(), NULL) && ERROR_ALREADY_EXISTS != GetLastError())
+                {
+                    cout << "Failed to create directory: " << destinationFilePath << endl;
+                    return false;
+                }
+
+                if (!CopyFolder(sourceFilePath, destinationFilePath))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!CopyFileA(sourceFilePath.c_str(), destinationFilePath.c_str(), FALSE))
+                {
+                    cout << "Failed to copy file: " << sourceFilePath << " to " << destinationFilePath << endl;
+                    return false;
+                }
+            }
+
+        } while (FindNextFileA(hFind, &fileData));
+
+        FindClose(hFind);
+        return true;
+    }
+
+    // Метод для поиска файла по имени
+    void FindFile(string fileName)
+    {
+        // Получаем путь к текущей директории выбранного диска
+        string path = driveLetter + string(":\\*.*");
+
+        WIN32_FIND_DATAA fd;
+        HANDLE hFind = FindFirstFileA(path.c_str(), &fd);
+        if (hFind != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                // Проверяем, является ли текущий элемент файлом с заданным именем
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+                    (strcmp(fd.cFileName, fileName.c_str()) == 0))
+                {
+                    // Найден файл с заданным именем
+                    cout << "File found: " << fd.cFileName << endl;
+                    return;
+                }
+            } while (FindNextFileA(hFind, &fd));
+            FindClose(hFind);
+        }
+        // Файл не найден
+        cout << "File not found: " << fileName << endl;
+    }
+
+    
+};
+
+class View {
+    string drive;////представление данных пользователю в любом поддерживаемом варианте
+public:
+    //View() {};
+
+    void display(string data) { //отображает данные
+        if (!data.empty()) {
+            cout << " " << data << endl;
+        }
+    }
+
+    //Метод для установки значения имени 
+    string getfilename()
+    {
+        string filename;
+        cout << "Enter object name : ";
+        getline(cin, filename);
+
+        return filename; //сохраняем значение 
+    }
+
+    //Метод для установки значения имени 
+    string getfolder()
+    {
+        string folder;
+        cout << "Enter object name folder: ";
+        getline(cin, folder);
+
+        // Проверка на пустую строку
+        while (folder.empty()) {
+            cout << "Invalid input. Please enter file or folder name to search: ";
+            getline(cin, folder);
+        }
+        return folder; //сохраняем значение 
+    }
+
+    string getdisk() //запрашивает новые данные
+    {
+        //Просим пользователя ввести желаемый диск для работы
+        cout << "Enter the drive letter: ";
+        getline(cin, drive);
+
+        // Проверяем, является ли введенная строка допустимым диском
+        if (!isalpha(drive[0]) || drive.size() != 1) {
+            cout << "Invalid drive letter entered. Please try again." << endl;
+            // рекурсивно вызываем метод, чтобы получить новый диск
+            return getdisk();
+        }
+
+        return drive;
+    }
+
+    string getSearch()
+    {
+        string filename;
+        cout << "Enter object name : ";
+        getline(cin, filename);
+
+        // Проверка на пустую строку
+        while (filename.empty()) {
+            cout << "Invalid input. Please enter file or folder name to search: ";
+            getline(cin, filename);
+        }
+        return filename; //сохраняем значение 
+    }
+
+    //Метод для вывода списка папок на диске для проверки (сохраняет в себе значение - с каким диском мы работаем)
+    string getListDirectory() //return drive сохраняется диск
+    {
+        return drive;
+    }
+
+    int getMenuChoice() const {
+        int choice;
+        cout << "\nEnter choice: ";
+        cin >> choice;
+
+        cin.ignore();
+
+        return choice;
+    }
+
+    void showError(string message) const {
+        cout << "Error: " << message << endl;
+    }
+
+    string getPath(string drive, string filename)
+    {
+        //Просим пользователя ввести желаемый диск для работы
+        cout << "Enter the drive letter: ";
+        getline(cin, drive);
+
+        // Проверяем, является ли введенная строка допустимым диском
+        if (!isalpha(drive[0]) || drive.size() != 1) {
+            cout << "Invalid drive letter entered. Please try again." << endl;
+            // рекурсивно вызываем метод, чтобы получить новый диск
+            return getdisk();
+        }
+
+        cout << "Enter object name : ";
+        getline(cin, filename);
+
+        // Проверка на пустую строку
+        while (filename.empty()) {
+            cout << "Invalid input. Please enter file or folder name to search: ";
+            getline(cin, filename);
+        }
+        string path = drive + string(":\\") + filename;
+        /*cout << "Enter the destination path: ";*/
+        return path;
+    }
+
+    void showMenu()
+    {
+        cout << "__________________________________________________" << endl;
+        cout << "[1]-create | [2]-rename | [3]- delete | [4]-copy |" << endl;
+        cout << "_____________________[9]- EXIT____________________" << endl;
+    }
+};
+
+class Controller { //связывает модель (DiskManager) и представление (View) 
+private:
+    DiskManager* disk;
+    View* view;
+public:
+    Controller(DiskManager* m_disk, View* v_view) : disk(m_disk), view(v_view) {}
+
+    // Метод, который позволяет выбрать диск и получить информацию о нем selectDrive_DisplayInfo()
+    void selectDrive_DisplayInfo()
+    {
+        disk->ListDrives(); //cписок доступных дисков
+        string drive = view->getdisk();
+        disk->setDriveLetter(drive);
+        if (disk->selectDrive(drive)) { // Пытаемся выбрать диск
+            // Выводим информацию о свободном месте на диске
+            disk->getDiskSpaceInfo(drive);
+            // Выводим список файлов и папок на диске
+            disk->ListDirectory(drive);
+        }
+        else {
+            view->display("Drive not found"); // отображение сообщения, если диск не найден
+        }
+    }
+
+    // Метод, который позволяет выбрать диск select_Drive()
+    void select_Drive(string drive)
+    {
+        do {
+            string drive = view->getdisk();
+            disk->setDriveLetter(drive);
+            disk->selectDrive(drive);
+            if (cin.fail()) { // если произошла ошибка ввода
+                cin.clear(); // сбросить флаги ошибок
+                cin.ignore('\n'); // очистить буфер ввода
+                cout << "Invalid input. Please try again." << endl;
+            }
+        } while (cin.fail()); // продолжать цикл до тех пор, пока пользовательский ввод не будет корректным
+    }
+    //Метод вызывает вывод всех данных вложений с диска show_ListDirectory() для проверки что папка или файл созданы
+    void show_ListDirectory()
+    {
+        string drive = view->getListDirectory(); // объект view в методе getListDirectory
+        disk->setDriveLetter(drive); //установка модели через метод setDriveLetter перегружая значение drive 
+        disk->ListDirectory(drive); //запрос модели (класс disk), вызывая метод ListDirectory
+    }
+
+    //CREATE//
+    // Метод, который позволяет создать папки на выбранном диске create_Folder()
+    void create_Folder()
+    {
+        string filename = view->getfilename();
+        disk->setFilename(filename);
+        disk->CreateNewFolder(filename); //есть проверка создания
+        disk->GetFileSize(filename);
+    }
+
+    // Метод, который позволяет создать файлы на выбранном диске create_File()
+    void create_File()
+    {
+        string filename = view->getfilename();
+        disk->setFilename(filename);
+        disk->CreateNewFile(filename);
+    }
+
+    void create()
+    {
+        view->display("Select to create Folder [1] or File [2] :");
+        int choice = view->getMenuChoice();
+        if (choice == 1) {
+            create_Folder();
+        }
+        else if (choice == 2) {
+            create_File();
+        }
+        else {
+            view->display("Invalid input."); // обработка некорректного ввода
+        }
+
+    }
+    //CREATE - exit//
+
+    //delete_Folder()
+    void delete_Folder() 
+    {
+        string filename = view->getfilename();
+        disk->setFilename(filename);
+        disk->DeleteFolderDisk(filename);
+    }
+
+    //delete_File()
+    void delete_File() 
+    {
+        string filename = view->getfilename();
+        disk->setFilename(filename);
+        disk->DeleteFileDisk(filename);
+    }
+
+    void _delete()
+    {
+        view->display("Select to delete Folder [1] or File [2] :");
+        int choice = view->getMenuChoice();
+        if (choice == 1) {
+            delete_Folder();
+        }
+        else if (choice == 2) {
+            delete_File();
+        }
+        else {
+            view->display("Invalid input."); // обработка некорректного ввода
+        }
+    }
+
+    //RenameFile_Folder()*****работает только поверхностно****************
+    void Find_File()
+    {
+        string filename = view->getfilename();
+        disk->setFilename(filename);
+        //Указать полное расширение файла "filename.txt"
+        disk->FindFile(filename);
+    }
+    //COPY//
+    void CopyFile_File()
+    {
+        string filename = view->getfilename();
+        disk->setFilename(filename);
+        disk->CopyFileDisk(filename);
+    }
+
+    void CopyFolder_Folder() 
+    {
+
+        string drive = view->getdisk();
+        disk->setDriveLetter(drive); // установки текущего диска через метод объекта disk
+        show_ListDirectory();
+
+
+        string filename = view->getfilename();//получаем имя файла
+        disk->setFilename(filename);
+        string path = disk->CopyFolder_arg(drive, filename); //возвращает путь к скопированной папке
+
+        string newname_get = view->getfolder();//
+        disk->setFolder(newname_get);
+        string path2 = disk->CreateNewFolder(newname_get);
+        string path_folder = disk->CopyFolder_arg(drive, newname_get); //возвращает путь папки сохраняя ее в переменной
+
+        //string path_folder = drive + string(":\\") + newname_get;
+        //string path_folder = view->getPath("", "");
+        bool success = disk->CopyFolder(path, path_folder); //метод CopyFolder() объекта disk, который копирует исходную папку в новую папку
+        if (success) {
+            cout << "Folder copied successfully!" << endl;
+        }
+        else {
+            cout << "Failed to copy folder." << endl;
+        }
+    }
+
+    void copy() 
+    {
+        view->display("Select to copy Folder [1] or File [2] :");
+        int choice = view->getMenuChoice();
+        if (choice == 1) {
+            CopyFolder_Folder();
+        }
+        else if (choice == 2) {
+            CopyFile_File();
+        }
+        else {
+            view->display("Invalid input."); // обработка некорректного ввода
+        }
+
+    }
+    //COPY - exit//
+    //RENAME//
+    void rename_Folder()
+    {
+        string oldFolderName = view->getfilename();
+        disk->setFilename(oldFolderName);
+
+        string newFolderName = view->getfilename();
+        disk->setFolder(newFolderName);
+
+        disk->renameFolder(oldFolderName, newFolderName);
+    }
+
+    void rename_File() 
+    { 
+        string oldFolderName = view->getfilename();
+        disk->setFilename(oldFolderName);
+
+        string newFolderName = view->getfilename();
+        disk->setFolder(newFolderName);
+
+        disk->renameFile(oldFolderName, newFolderName);
+    }
+
+    void rename()
+    {
+        view->display("Select for rename Folder [1] or File [2] :");
+        int choice = view->getMenuChoice();
+        if (choice == 1) {
+            rename_Folder();
+        }
+        else if (choice == 2) {
+            rename_File();
+        }
+        else {
+            view->display("Invalid input."); // обработка некорректного ввода
+        }
+
+    }
+    //RENAME - exit//
+
+    void start()
+    {
+        while (true) {
+            selectDrive_DisplayInfo();
+
+            view->showMenu();
+            
+            int choice;
+            cout << "\nEnter choice: ";
+            cin >> choice; cin.ignore();
+
+            switch (choice)
+            {
+            case 1:
+                create();
+                show_ListDirectory();
+                break;
+            
+            case 2:
+                rename();
+                show_ListDirectory();
+                break;
+
+            case 3:
+                _delete();
+                show_ListDirectory();
+                break;
+
+            case 4:
+                copy();
+                show_ListDirectory();
+                break;
+
+            case 9:
+                cout << "Goodbye!\n";
+                return;
+
+            default:
+                view->showError("Invalid choice");
+                break;
+            }
+        }
+    }
+
+};
+
+int main()
+{
+    setlocale(LC_ALL, "Russian");
+    DiskManager disk("");
+    View view;
+    Controller controller(&disk, &view);
+
+    controller.start();
+    
+    return 0;
+}
+
